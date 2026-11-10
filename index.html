@@ -42,8 +42,22 @@ h1{font-size:1.5rem;font-weight:800;margin:0;letter-spacing:-.01em}
 .total .sub{opacity:.85;font-size:.95rem}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
 .stats div{background:rgba(255,255,255,.14);border-radius:12px;padding:10px 12px}
-.stats b{display:block;font-size:1.4rem}
+.stats b{display:block;font-size:1.25rem;overflow-wrap:anywhere}
 .stats span{font-size:.85rem;opacity:.9}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:14px}
+.progtop{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.progtop b{font-size:1.5rem}
+.progtop span{color:var(--muted);font-size:.9rem}
+.bar{height:10px;border-radius:99px;background:var(--bg);margin:8px 0 14px;overflow:hidden;border:1px solid var(--line)}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.cal .wd{font-size:.75rem;color:var(--muted);font-weight:700;padding-bottom:2px}
+.cal button{aspect-ratio:1;border:0;border-radius:10px;background:var(--bg);color:var(--ink);font:inherit;font-size:.95rem;font-weight:600;padding:0}
+.cal button.we{background:transparent;color:var(--muted)}
+.cal button.done{background:var(--accent);color:var(--accent-ink)}
+.cal button.today{outline:2px solid var(--ink);outline-offset:-2px}
+.legend{display:flex;gap:14px;margin-top:10px;font-size:.8rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .add{display:block;width:100%;margin:16px 0 22px;padding:16px;border:0;border-radius:16px;background:var(--ink);color:var(--bg);font:inherit;font-size:1.05rem;font-weight:700}
 h2{font-size:1rem;margin:0 0 8px;color:var(--muted);font-weight:600}
 .list{background:var(--surface);border-radius:16px;overflow:hidden;border:1px solid var(--line)}
@@ -96,12 +110,21 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   </div>
 
   <section class="total" aria-live="polite">
-    <div class="sub">Earned this month</div>
+    <div class="sub">Total after expenses this month</div>
     <div class="amt" id="amt">0</div>
     <div class="stats">
+      <div><b id="earned">0</b><span>earned</span></div>
+      <div><b id="exp">0</b><span>expenses</span></div>
       <div><b id="days">0</b><span>days worked</span></div>
       <div><b id="hours">0</b><span>hours</span></div>
     </div>
+  </section>
+
+  <section class="card">
+    <div class="progtop"><b id="pct">0%</b><span id="pctText">0 of 0 work days</span></div>
+    <div class="bar"><i id="pctBar"></i></div>
+    <div class="cal" id="cal"></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Worked</span><span><i style="background:var(--bg);border:1px solid var(--line)"></i>Mon–Fri</span><span>Tap a day to add or edit</span></div>
   </section>
 
   <button class="add" id="addBtn">+ Add work day</button>
@@ -141,6 +164,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
     <label for="fRate">Rate per hour</label>
     <div class="chips" id="rateChips"></div>
     <input type="text" id="fRate" inputmode="decimal" placeholder="Or type another rate">
+    <label for="fExp">Transport / expenses (optional)</label>
+    <input type="text" id="fExp" inputmode="decimal" placeholder="e.g. 45,50">
     <label for="fNote">Note (optional)</label>
     <input type="text" id="fNote" placeholder="Client, job, location…">
     <div class="preview" id="preview"></div>
@@ -222,9 +247,12 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
     $("monthLabel").textContent = view.toLocaleDateString(undefined,{month:"long",year:"numeric"});
     var items = state.entries.filter(function(e){ return e.date.slice(0,7)===key; })
       .sort(function(a,b){ return b.date.localeCompare(a.date) || (b.start||"").localeCompare(a.start||""); });
-    var totalH=0,totalA=0,days={};
-    items.forEach(function(e){ totalH+=e.hours; totalA+=e.hours*e.rate; days[e.date]=1; });
-    $("amt").textContent = money(totalA);
+    var totalH=0,totalA=0,totalE=0,days={};
+    items.forEach(function(e){ totalH+=e.hours; totalA+=e.hours*e.rate; totalE+=(e.exp||0); days[e.date]=1; });
+    $("amt").textContent = money(totalA-totalE);
+    $("earned").textContent = money(totalA);
+    $("exp").textContent = money(totalE);
+    renderCal(items, days);
     $("days").textContent = Object.keys(days).length;
     $("hours").textContent = hrs(totalH);
     $("listTitle").textContent = items.length ? items.length+(items.length===1?" entry":" entries") : "Entries";
@@ -239,15 +267,45 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       var l=document.createElement("div");
       var d=document.createElement("div"); d.className="d"; d.textContent=fmtDate(e.date);
       var m=document.createElement("div"); m.className="m";
-      var parts=[]; if(e.start&&e.end) parts.push(e.start+"–"+e.end+(e.brk?" (−"+e.brk+"m)":"")); parts.push(hrs(e.hours)+" h × "+money(e.rate)); if(e.note) parts.push(e.note);
+      var parts=[]; if(e.start&&e.end) parts.push(e.start+"–"+e.end+(e.brk?" (−"+e.brk+"m)":"")); parts.push(hrs(e.hours)+" h × "+money(e.rate)); if(e.exp) parts.push("expenses "+money(e.exp)); if(e.note) parts.push(e.note);
       m.textContent=parts.join(", ");
       l.appendChild(d); l.appendChild(m);
       var r=document.createElement("div"); r.className="r";
-      var rb=document.createElement("b"); rb.textContent=money(e.hours*e.rate); r.appendChild(rb);
+      var rb=document.createElement("b"); rb.textContent=money(e.hours*e.rate-(e.exp||0)); r.appendChild(rb);
       b.appendChild(l); b.appendChild(r);
       b.addEventListener("click",function(){ openEntry(e); });
       list.appendChild(b);
     });
+  }
+
+  // ---------- calendar & progress ----------
+  function renderCal(items, days){
+    var y=view.getFullYear(), mo=view.getMonth(), n=new Date(y,mo+1,0).getDate();
+    var key=monthKey(view), today=todayStr(), work=0;
+    for(var d=1; d<=n; d++){ var wd=new Date(y,mo,d).getDay(); if(wd>0&&wd<6) work++; }
+    var done=Object.keys(days).length, pct=work?Math.round(done/work*100):0;
+    $("pct").textContent=pct+"%";
+    $("pctText").textContent=done+" of "+work+" work days";
+    $("pctBar").style.width=Math.min(100,pct)+"%";
+    var cal=$("cal"); cal.innerHTML="";
+    ["M","T","W","T","F","S","S"].forEach(function(l){ var h=document.createElement("div"); h.className="wd"; h.textContent=l; cal.appendChild(h); });
+    var lead=(new Date(y,mo,1).getDay()+6)%7;
+    for(var i=0;i<lead;i++) cal.appendChild(document.createElement("div"));
+    for(var d2=1; d2<=n; d2++){
+      (function(day){
+        var ds=key+"-"+String(day).padStart(2,"0"), wd=new Date(y,mo,day).getDay();
+        var b=document.createElement("button"); b.type="button"; b.textContent=day;
+        if(wd===0||wd===6) b.classList.add("we");
+        if(days[ds]) b.classList.add("done");
+        if(ds===today) b.classList.add("today");
+        b.setAttribute("aria-label", ds+(days[ds]?" worked":""));
+        b.onclick=function(){
+          var ex=items.filter(function(e){ return e.date===ds; })[0];
+          openEntry(ex||null, ds);
+        };
+        cal.appendChild(b);
+      })(d2);
+    }
   }
 
   // ---------- entry sheet ----------
@@ -265,20 +323,21 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   function updatePreview(){
     var h=currentHours(), r=num($("fRate").value);
     syncChips();
-    $("preview").textContent = hrs(h)+" hours × "+money(r)+" = "+money(h*r);
+    var x=num($("fExp").value);
+    $("preview").textContent = hrs(h)+" hours × "+money(r)+" = "+money(h*r) + (x ? "  − "+money(x)+" expenses = "+money(h*r-x) : "");
   }
-  function openEntry(e){
+  function openEntry(e, presetDate){
     editingId = e ? e.id : null;
     $("entryTitle").textContent = e ? "Edit work day" : "Add work day";
     $("delBtn").classList.toggle("hide", !e);
     if(e){
-      $("fDate").value=e.date; $("fRate").value=rateStr(e.rate); $("fNote").value=e.note||"";
+      $("fDate").value=e.date; $("fRate").value=rateStr(e.rate); $("fNote").value=e.note||""; $("fExp").value=e.exp?rateStr(e.exp):"";
       if(e.start&&e.end){ $("fStart").value=e.start; $("fEnd").value=e.end; $("fBreak").value=e.brk||0; setMode("times"); }
       else { $("fHours").value=e.hours; setMode("hours"); }
     } else {
       var inMonth = monthKey(view)===monthKey(new Date());
-      $("fDate").value = inMonth ? todayStr() : monthKey(view)+"-01";
-      $("fRate").value = rateStr(state.rate); $("fNote").value=""; $("fHours").value="";
+      $("fDate").value = presetDate || (inMonth ? todayStr() : monthKey(view)+"-01");
+      $("fRate").value = rateStr(state.rate); $("fNote").value=""; $("fHours").value=""; $("fExp").value="";
       var last = state.entries.slice().sort(function(a,b){return b.date.localeCompare(a.date);})[0];
       if(last && last.start){ $("fStart").value=last.start; $("fEnd").value=last.end; $("fBreak").value=last.brk||0; }
       setMode(last && !last.start ? "hours" : "times");
@@ -308,7 +367,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
     var h=currentHours();
     if(h<=0){ $("preview").textContent="Enter the hours worked to save this day."; return; }
     var e = { id: editingId || (Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
-      date:date, hours:Math.round(h*100)/100, rate:num($("fRate").value), note:$("fNote").value.trim() };
+      date:date, hours:Math.round(h*100)/100, rate:num($("fRate").value), note:$("fNote").value.trim(), exp:Math.round(num($("fExp").value)*100)/100 };
     if(mode==="times"){ e.start=$("fStart").value; e.end=$("fEnd").value; e.brk=parseInt($("fBreak").value,10)||0; }
     if(editingId){ state.entries = state.entries.map(function(x){ return x.id===editingId?e:x; }); }
     else state.entries.push(e);
@@ -331,15 +390,15 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 
   // ---------- all-time ----------
   function openAll(){
-    var byMonth={}, H=0,A=0,D={};
+    var byMonth={}, H=0,A=0,X=0,D={};
     state.entries.forEach(function(e){
-      var k=e.date.slice(0,7); byMonth[k]=byMonth[k]||{h:0,a:0,d:{}};
-      byMonth[k].h+=e.hours; byMonth[k].a+=e.hours*e.rate; byMonth[k].d[e.date]=1;
-      H+=e.hours; A+=e.hours*e.rate; D[e.date]=1;
+      var k=e.date.slice(0,7); byMonth[k]=byMonth[k]||{h:0,a:0,x:0,d:{}};
+      byMonth[k].h+=e.hours; byMonth[k].a+=e.hours*e.rate; byMonth[k].x+=(e.exp||0); byMonth[k].d[e.date]=1;
+      H+=e.hours; A+=e.hours*e.rate; X+=(e.exp||0); D[e.date]=1;
     });
     var body=$("allBody"); body.innerHTML="";
     var top=document.createElement("div"); top.className="preview";
-    top.textContent=Object.keys(D).length+" days, "+hrs(H)+" hours, "+money(A)+" total";
+    top.textContent=Object.keys(D).length+" days, "+hrs(H)+" hours. Earned "+money(A)+", expenses "+money(X)+", after expenses "+money(A-X);
     body.appendChild(top);
     var keys=Object.keys(byMonth).sort().reverse();
     if(keys.length){
@@ -349,9 +408,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         var row=document.createElement("div"); row.className="row";
         var l=document.createElement("div");
         var t=document.createElement("div"); t.className="d"; t.textContent=new Date(+p[0],+p[1]-1,1).toLocaleDateString(undefined,{month:"long",year:"numeric"});
-        var s=document.createElement("div"); s.className="m"; s.textContent=Object.keys(m.d).length+" days, "+hrs(m.h)+" h";
+        var s=document.createElement("div"); s.className="m"; s.textContent=Object.keys(m.d).length+" days, "+hrs(m.h)+" h, earned "+money(m.a)+", expenses "+money(m.x);
         l.appendChild(t); l.appendChild(s);
-        var r=document.createElement("div"); r.className="r"; var b=document.createElement("b"); b.textContent=money(m.a); r.appendChild(b);
+        var r=document.createElement("div"); r.className="r"; var b=document.createElement("b"); b.textContent=money(m.a-m.x); r.appendChild(b);
         row.appendChild(l); row.appendChild(r); list.appendChild(row);
       });
       body.appendChild(list);
@@ -361,9 +420,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 
   // ---------- CSV ----------
   async function exportCsv(){
-    var rows=[["Date","Start","End","Break (min)","Hours","Rate","Amount","Note"]];
+    var rows=[["Date","Start","End","Break (min)","Hours","Rate","Amount","Note","Expenses"]];
     state.entries.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(e){
-      rows.push([e.date,e.start||"",e.end||"",e.brk||"",e.hours,e.rate,(Math.round(e.hours*e.rate*100)/100),e.note||""]);
+      rows.push([e.date,e.start||"",e.end||"",e.brk||"",e.hours,e.rate,(Math.round(e.hours*e.rate*100)/100),e.note||"",e.exp||""]);
     });
     var csv=rows.map(function(r){ return r.map(function(v){ v=String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(","); }).join("\n");
     var name="work-hours-"+todayStr()+".csv";
@@ -404,7 +463,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   $("setSave").onclick=saveSettings;
   $("modeTimes").onclick=function(){ setMode("times"); };
   $("modeHours").onclick=function(){ setMode("hours"); };
-  ["fStart","fEnd","fBreak","fHours","fRate"].forEach(function(id){ $(id).addEventListener("input",updatePreview); });
+  ["fStart","fEnd","fBreak","fHours","fRate","fExp"].forEach(function(id){ $(id).addEventListener("input",updatePreview); });
   $("cancelBtn").onclick=closeEntry;
   $("saveBtn").onclick=saveEntry;
   $("delBtn").onclick=deleteEntry;
@@ -420,7 +479,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       var seen={}; state.entries.forEach(function(e){ seen[e.date+"|"+(e.start||"")+"|"+e.hours]=1; });
       rows.forEach(function(r){
         if(!/^\d{4}-\d{2}-\d{2}$/.test(r[0]||"")) return;
-        var e={ id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date:r[0], hours:num(r[4]), rate:num(r[5]), note:r[7]||"" };
+        var e={ id:Date.now().toString(36)+Math.random().toString(36).slice(2,6), date:r[0], hours:num(r[4]), rate:num(r[5]), note:r[7]||"", exp:num(r[8]||0) };
         if(r[1]&&r[2]){ e.start=r[1]; e.end=r[2]; e.brk=parseInt(r[3],10)||0; }
         var k=e.date+"|"+(e.start||"")+"|"+e.hours;
         if(e.hours>0 && !seen[k]){ seen[k]=1; state.entries.push(e); added++; }
