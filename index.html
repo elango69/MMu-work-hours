@@ -46,9 +46,12 @@ h1{font-size:1.5rem;font-weight:800;margin:0;letter-spacing:-.01em}
 .stats span{font-size:.85rem;opacity:.9}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:14px}
 .progtop{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.progtop b{font-size:1.5rem}
+.progtop b{font-size:1.25rem}
+.progtop span{font-weight:600}
+.ptext{color:var(--muted);font-size:.85rem}
+.calwrap{margin-top:6px;padding-top:12px;border-top:1px solid var(--line)}
 .progtop span{color:var(--muted);font-size:.9rem}
-.bar{height:10px;border-radius:99px;background:var(--bg);margin:8px 0 14px;overflow:hidden;border:1px solid var(--line)}
+.bar{height:10px;border-radius:99px;background:var(--bg);margin:6px 0 12px;overflow:hidden;border:1px solid var(--line)}
 .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
 .cal .wd{font-size:.75rem;color:var(--muted);font-weight:700;padding-bottom:2px}
@@ -83,7 +86,7 @@ textarea{min-height:60px;resize:vertical}
 .seg{display:grid;grid-template-columns:1fr 1fr;background:var(--bg);border-radius:12px;padding:4px;border:1px solid var(--line)}
 .seg button{border:0;background:none;padding:9px;border-radius:9px;font:inherit;font-weight:600;color:var(--muted)}
 .seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
-.preview{margin:14px 0 4px;padding:12px 14px;border-radius:12px;background:var(--soft);font-weight:600}
+.preview{white-space:pre-line;margin:14px 0 4px;padding:12px 14px;border-radius:12px;background:var(--soft);font-weight:600}
 .chips{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
 .chip{padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:1.05rem;font-weight:700}
 .chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -121,9 +124,16 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   </section>
 
   <section class="card">
-    <div class="progtop"><b id="pct">0%</b><span id="pctText">0 of 0 work days</span></div>
+    <div class="progtop"><span>This month</span><b id="pct">0%</b></div>
+    <div class="ptext" id="pctText"></div>
     <div class="bar"><i id="pctBar"></i></div>
-    <div class="cal" id="cal"></div>
+    <div class="progtop"><span id="yLabel">This year</span><b id="pctY">0%</b></div>
+    <div class="ptext" id="pctYText"></div>
+    <div class="bar"><i id="pctYBar"></i></div>
+    <div class="progtop"><span>Overall</span><b id="pctA">0%</b></div>
+    <div class="ptext" id="pctAText"></div>
+    <div class="bar"><i id="pctABar"></i></div>
+    <div class="calwrap"><div class="cal" id="cal"></div></div>
     <div class="legend"><span><i style="background:var(--accent)"></i>Worked</span><span><i style="background:var(--bg);border:1px solid var(--line)"></i>Mon–Fri</span><span>Tap a day to add or edit</span></div>
   </section>
 
@@ -154,8 +164,14 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
         <div><label for="fStart">Start</label><input type="time" id="fStart" value="09:00"></div>
         <div><label for="fEnd">End</label><input type="time" id="fEnd" value="17:00"></div>
       </div>
-      <label for="fBreak">Unpaid break (minutes)</label>
-      <input type="number" id="fBreak" inputmode="numeric" min="0" step="5" value="0">
+      <label for="fBreak">Break (minutes, not paid)</label>
+      <div class="chips" id="breakChips" style="grid-template-columns:repeat(4,1fr)">
+        <button type="button" class="chip" data-min="0">None</button>
+        <button type="button" class="chip" data-min="30">30</button>
+        <button type="button" class="chip" data-min="45">45</button>
+        <button type="button" class="chip" data-min="60">60</button>
+      </div>
+      <input type="number" id="fBreak" inputmode="numeric" min="0" step="5" value="0" placeholder="Or type minutes">
     </div>
     <div id="hoursBox" class="hide">
       <label for="fHours">Hours worked</label>
@@ -279,14 +295,31 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   }
 
   // ---------- calendar & progress ----------
+  function weekdays(a,b){ var c=0, d=new Date(a); while(d<=b){ var w=d.getDay(); if(w>0&&w<6) c++; d.setDate(d.getDate()+1); } return c; }
+  function setPct(id, done, total, label){
+    var p=total?Math.round(done/total*100):0;
+    $(id).textContent=p+"%";
+    $(id+"Text").textContent= (total||done) ? done+" of "+total+" "+label : label;
+    $(id+"Bar").style.width=Math.min(100,p)+"%";
+  }
   function renderCal(items, days){
     var y=view.getFullYear(), mo=view.getMonth(), n=new Date(y,mo+1,0).getDate();
     var key=monthKey(view), today=todayStr(), work=0;
     for(var d=1; d<=n; d++){ var wd=new Date(y,mo,d).getDay(); if(wd>0&&wd<6) work++; }
-    var done=Object.keys(days).length, pct=work?Math.round(done/work*100):0;
-    $("pct").textContent=pct+"%";
-    $("pctText").textContent=done+" of "+work+" work days";
-    $("pctBar").style.width=Math.min(100,pct)+"%";
+    var done=Object.keys(days).length;
+    setPct("pct", done, work, "work days in "+view.toLocaleDateString(undefined,{month:"long"}));
+    // year: all Mon–Fri in the year of the month shown
+    var yDays={}, allDays={};
+    state.entries.forEach(function(e){ if(e.hours>0){ allDays[e.date]=1; if(+e.date.slice(0,4)===y) yDays[e.date]=1; } });
+    $("yLabel").textContent="Year "+y;
+    setPct("pctY", Object.keys(yDays).length, weekdays(new Date(y,0,1), new Date(y,11,31)), "work days in "+y);
+    // overall: Mon–Fri from your first recorded day until today (or your last day, if later)
+    var ds=Object.keys(allDays).sort();
+    if(ds.length){
+      var f=ds[0].split("-"), l=ds[ds.length-1].split("-");
+      var start=new Date(+f[0],+f[1]-1,+f[2]), last=new Date(+l[0],+l[1]-1,+l[2]), now=new Date(); now.setHours(0,0,0,0);
+      setPct("pctA", ds.length, weekdays(start, last>now?last:now), "work days since "+start.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}));
+    } else setPct("pctA",0,0,"No days recorded yet");
     var cal=$("cal"); cal.innerHTML="";
     ["M","T","W","T","F","S","S"].forEach(function(l){ var h=document.createElement("div"); h.className="wd"; h.textContent=l; cal.appendChild(h); });
     var lead=(new Date(y,mo,1).getDay()+6)%7;
@@ -320,11 +353,21 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   function currentHours(){
     return mode==="times" ? calcTimes($("fStart").value,$("fEnd").value,$("fBreak").value) : Math.max(0,num($("fHours").value));
   }
+  function hm(h){ var m=Math.round(h*60); return Math.floor(m/60)+"h "+String(m%60).padStart(2,"0")+"m"; }
   function updatePreview(){
     var h=currentHours(), r=num($("fRate").value);
     syncChips();
-    var x=num($("fExp").value);
-    $("preview").textContent = hrs(h)+" hours × "+money(r)+" = "+money(h*r) + (x ? "  − "+money(x)+" expenses = "+money(h*r-x) : "");
+    var x=num($("fExp").value), lines=[];
+    var bm=parseInt($("fBreak").value,10)||0;
+    document.querySelectorAll("#breakChips .chip").forEach(function(c){ c.classList.toggle("on", +c.dataset.min===bm); });
+    if(mode==="times"){
+      var gross=calcTimes($("fStart").value,$("fEnd").value,0);
+      lines.push("Time at work: "+hm(gross)+(bm?"  − break "+bm+" min":""));
+      lines.push("Paid hours: "+hm(h)+" ("+hrs(h)+" h)");
+    }
+    lines.push(hrs(h)+" h × "+money(r)+" = "+money(h*r));
+    if(x) lines.push("− expenses "+money(x)+" = "+money(h*r-x));
+    $("preview").textContent = lines.join("\n");
   }
   function openEntry(e, presetDate){
     editingId = e ? e.id : null;
@@ -464,6 +507,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   $("modeTimes").onclick=function(){ setMode("times"); };
   $("modeHours").onclick=function(){ setMode("hours"); };
   ["fStart","fEnd","fBreak","fHours","fRate","fExp"].forEach(function(id){ $(id).addEventListener("input",updatePreview); });
+  document.querySelectorAll("#breakChips .chip").forEach(function(c){ c.onclick=function(){ $("fBreak").value=c.dataset.min; updatePreview(); }; });
   $("cancelBtn").onclick=closeEntry;
   $("saveBtn").onclick=saveEntry;
   $("delBtn").onclick=deleteEntry;
