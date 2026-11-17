@@ -201,6 +201,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
       <div><label for="sRate">Rate 1</label><input type="text" id="sRate" inputmode="decimal"></div>
       <div><label for="sRate2">Rate 2</label><input type="text" id="sRate2" inputmode="decimal"></div>
     </div>
+    <label for="sStd">Normal work day (paid hours, after break)</label>
+    <input type="text" id="sStd" inputmode="decimal" placeholder="7,5">
     <label for="sCur">Currency symbol</label>
     <input type="text" id="sCur" maxlength="4" placeholder="$">
     <p style="color:var(--muted);font-size:.88rem;margin:10px 0 0">Both rates appear as quick buttons when you add a day. Days you already saved keep their own rate.</p>
@@ -223,7 +225,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 <script>
 (function(){
   var LS_KEY = "workhours-v1";
-  var state = { rate: 241.31, rate2: 231.31, currency: "$", entries: [] };
+  var state = { rate: 241.31, rate2: 231.31, std: 7.5, currency: "$", entries: [] };
   var view = new Date(); view.setDate(1);
   var editingId = null, mode = "times";
 
@@ -296,30 +298,33 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 
   // ---------- calendar & progress ----------
   function weekdays(a,b){ var c=0, d=new Date(a); while(d<=b){ var w=d.getDay(); if(w>0&&w<6) c++; d.setDate(d.getDate()+1); } return c; }
-  function setPct(id, done, total, label){
-    var p=total?Math.round(done/total*100):0;
+  function setPct(id, doneH, totalH, doneD, totalD, extra){
+    var p=totalH?Math.round(doneH/totalH*100):0;
     $(id).textContent=p+"%";
-    $(id+"Text").textContent= (total||done) ? done+" of "+total+" "+label : label;
+    $(id+"Text").textContent= (totalH||doneH) ? hrs(doneH)+" of "+hrs(totalH)+" hours, "+doneD+" of "+totalD+" days"+(extra?" "+extra:"") : extra;
     $(id+"Bar").style.width=Math.min(100,p)+"%";
   }
   function renderCal(items, days){
     var y=view.getFullYear(), mo=view.getMonth(), n=new Date(y,mo+1,0).getDate();
     var key=monthKey(view), today=todayStr(), work=0;
     for(var d=1; d<=n; d++){ var wd=new Date(y,mo,d).getDay(); if(wd>0&&wd<6) work++; }
-    var done=Object.keys(days).length;
-    setPct("pct", done, work, "work days in "+view.toLocaleDateString(undefined,{month:"long"}));
+    var std=state.std||7.5, done=Object.keys(days).length, mH=0;
+    items.forEach(function(e){ mH+=e.hours; });
+    setPct("pct", mH, work*std, done, work, "");
     // year: all Mon–Fri in the year of the month shown
-    var yDays={}, allDays={};
-    state.entries.forEach(function(e){ if(e.hours>0){ allDays[e.date]=1; if(+e.date.slice(0,4)===y) yDays[e.date]=1; } });
+    var yDays={}, allDays={}, yH=0, aH=0;
+    state.entries.forEach(function(e){ if(e.hours>0){ allDays[e.date]=1; aH+=e.hours; if(+e.date.slice(0,4)===y){ yDays[e.date]=1; yH+=e.hours; } } });
     $("yLabel").textContent="Year "+y;
-    setPct("pctY", Object.keys(yDays).length, weekdays(new Date(y,0,1), new Date(y,11,31)), "work days in "+y);
+    var yW=weekdays(new Date(y,0,1), new Date(y,11,31));
+    setPct("pctY", yH, yW*std, Object.keys(yDays).length, yW, "");
     // overall: Mon–Fri from your first recorded day until today (or your last day, if later)
     var ds=Object.keys(allDays).sort();
     if(ds.length){
       var f=ds[0].split("-"), l=ds[ds.length-1].split("-");
       var start=new Date(+f[0],+f[1]-1,+f[2]), last=new Date(+l[0],+l[1]-1,+l[2]), now=new Date(); now.setHours(0,0,0,0);
-      setPct("pctA", ds.length, weekdays(start, last>now?last:now), "work days since "+start.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}));
-    } else setPct("pctA",0,0,"No days recorded yet");
+      var aW=weekdays(start, last>now?last:now);
+      setPct("pctA", aH, aW*std, ds.length, aW, "since "+start.toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}));
+    } else setPct("pctA",0,0,0,0,"No days recorded yet");
     var cal=$("cal"); cal.innerHTML="";
     ["M","T","W","T","F","S","S"].forEach(function(l){ var h=document.createElement("div"); h.className="wd"; h.textContent=l; cal.appendChild(h); });
     var lead=(new Date(y,mo,1).getDay()+6)%7;
@@ -425,9 +430,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
   }
 
   // ---------- settings ----------
-  function openSettings(){ $("sRate").value=rateStr(state.rate); $("sRate2").value=rateStr(state.rate2); $("sCur").value=state.currency; $("setOv").classList.add("open"); }
+  function openSettings(){ $("sRate").value=rateStr(state.rate); $("sRate2").value=rateStr(state.rate2); $("sStd").value=rateStr(state.std||7.5); $("sCur").value=state.currency; $("setOv").classList.add("open"); }
   function saveSettings(){
-    state.rate=num($("sRate").value); state.rate2=num($("sRate2").value); state.currency=$("sCur").value;
+    state.rate=num($("sRate").value); state.rate2=num($("sRate2").value); state.std=num($("sStd").value)||7.5; state.currency=$("sCur").value;
     $("setOv").classList.remove("open"); render(); persist();
   }
 
